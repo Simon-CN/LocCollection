@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Hosting;
 using Newtonsoft.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Net.Http;
 
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
@@ -22,8 +23,11 @@ namespace LocReceiverService.Controllers
         private readonly IHostingEnvironment _hostingEnvironment;
         bool isStore = false;
         static List<string> cache = new List<string>();
+        static List<string> failed_cache = new List<string>();
         private static readonly string _appsecret = "H2+k+y+BVgy7qsZJMm+bsdLadyJJ+6JBmTe4tiAEiyI";
         private static readonly string _uri = "/api/e2ad0736-3525-4cc9-b025-44c70a7db989/HuaweiServer/locationRequest";
+        private Task<HttpResponseMessage> msg;
+        HttpClient client = new HttpClient();
 
         public LocServiceController(IHostingEnvironment environment)
         {
@@ -42,11 +46,11 @@ namespace LocReceiverService.Controllers
             return s;
         }
 
-
         // POST api/values
         [HttpPost]
         public String Post([FromBody]JObject value, [FromHeader] string key, [FromHeader]string sign)
         {
+            string result = "";
             if (isStore)
                 return "当前不可用";
             DateTime time = DateTime.Now;
@@ -57,20 +61,29 @@ namespace LocReceiverService.Controllers
                 s += "key : " + key + "\n";
                 s += "sign : " + sign + "\n";
                 s += "body : " + value.ToString(Formatting.None) + "\n";
+
+                if (CheckSign(key, sign, value.ToString(Formatting.None)))
+                {
+                    s += "认证成功+\n";
+                    result = "认证成功";
+                }
+                else
+                {
+                    s += "认证失败+\n";
+                    result = "认证失败";
+                    failed_cache.Add(s);
+                }
+                cache.Add(s);
+
             }
             catch (Exception e)
             {
                 s += e.Message;
+                result = e.Message;
             }
-            finally
-            {
-                s += "\n";
-            }
-            cache.Add(s);
-            if (CheckSign(key, sign, value.ToString(Formatting.None)))
-                return "认证成功";
-            else
-                return "认证失败";
+
+
+            return result;
         }
 
         private string WriteToFile()
@@ -80,14 +93,27 @@ namespace LocReceiverService.Controllers
             try
             {
                 string s = _hostingEnvironment.WebRootPath + "/";
-                FileStream fs = new FileStream(s + DateTime.Now.ToFileTime() + ".txt", FileMode.Append);
+                string name = DateTime.Now.ToFileTime().ToString();
+                FileStream fs = new FileStream(s + name + ".txt", FileMode.Append);
                 StreamWriter sw = new StreamWriter(fs);
                 for (int i = 0; i < cache.Count; i++)
                     sw.Write(cache[i]);
                 sw.Flush();
                 sw.Close();
                 fs.Close();
-                return "finished";
+
+                if (failed_cache.Count == 0)
+                    return "no failed";
+                FileStream fs1 = new FileStream(s + name + "_failed.txt", FileMode.Append);
+                StreamWriter sw1 = new StreamWriter(fs1);
+                foreach (string sf in failed_cache)
+                {
+                    sw1.Write(sf);
+                }
+                sw1.Flush();
+                sw1.Close();
+                fs1.Close();
+                return "has failed";
             }
             catch (Exception e)
             {
@@ -121,6 +147,13 @@ namespace LocReceiverService.Controllers
                 hash.Append(theByte.ToString("x2"));
             }
             return hash.ToString().ToUpper();
+        }
+
+        private async Task<string> getLocResult(string body)
+        {
+            HttpContent content = new StringContent(body, Encoding.UTF8, "application/json");
+            HttpResponseMessage msg = await client.PostAsync("https://122.112.235.3/HuaweiServer/locationRequest", content);
+            return await msg.Content.ReadAsStringAsync();
         }
     }
 }
