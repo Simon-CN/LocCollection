@@ -42,6 +42,7 @@ namespace LocReceiverService.Controllers
             isStore = true;
             s = WriteToFile();
             cache.Clear();
+            failed_cache.Clear();
             isStore = false;
             return s;
         }
@@ -82,7 +83,7 @@ namespace LocReceiverService.Controllers
                 result = e.Message;
             }
 
-
+            Thread.Sleep(2000);
             return result;
         }
 
